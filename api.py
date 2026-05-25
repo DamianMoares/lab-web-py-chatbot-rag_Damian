@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI, Request, HTTPException, status
 from pydantic import BaseModel, Field
 import chatbot
+import uvicorn
 
 # Configuración del Logging básico
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -36,7 +37,7 @@ class ChatRequest(BaseModel):
 
 @app.post("/chat")
 def post_chat(payload: ChatRequest, request: Request):
-    ip_cliente = request.client.host
+    ip_cliente = request.client.host if request.client else "desconocido"
     verificar_rate_limit(ip_cliente)
     
     # Logging de la llamada sin exponer el contenido interno de la base de datos
@@ -75,3 +76,6 @@ def listar_documentos():
         return {"documentos_indexados": archivos_unicos}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

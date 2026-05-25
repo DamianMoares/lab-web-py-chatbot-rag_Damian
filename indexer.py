@@ -1,24 +1,28 @@
 import os
 import glob
+import tiktoken
 from openai import OpenAI
 import chromadb
 from chromadb.utils import embedding_functions
+from utils import chunk_text
 
-# Configuración del cliente local (LM Studio)
-# Nota: LM Studio debe tener un modelo de embeddings cargado (ej. bge-large-en-v1.5 o similar)
 client_llm = OpenAI(base_url="http://localhost:1234/v1", api_key="lm-studio")
 
-# Configurar ChromaDB persistente
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
-# Usamos una función de embedding personalizada que llame a LM Studio
 class LMStudioEmbeddingFunction(embedding_functions.EmbeddingFunction):
     def __call__(self, input: list[str]) -> list[list[float]]:
-        response = client_llm.embeddings.create(
-            model="local-model", # LM Studio ignora este nombre y usa el cargado
-            input=input
-        )
-        return [data.embedding for data in response.data]
+        try:
+            response = client_llm.embeddings.create(
+                model="local-model",
+                input=input
+            )
+            return [data.embedding for data in response.data]
+        except Exception as e:
+            print(f"\n❌ ERROR: No se puede conectar a LM Studio en http://localhost:1234")
+            print(f"   Asegúrate de que LM Studio está abierto y el servidor está activo.")
+            print(f"   Error: {str(e)}\n")
+            raise
 
 embedding_fn = LMStudioEmbeddingFunction()
 collection = chroma_client.get_or_create_collection(
@@ -26,20 +30,14 @@ collection = chroma_client.get_or_create_collection(
     embedding_function=embedding_fn
 )
 
-def chunk_text(text: str, max_chars: int = 500, overlap: int = 100) -> list[str]:
-    """Fragmenta el texto en chunks basados en caracteres con un solapamiento."""
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + max_chars
-        chunks.append(text[start:end])
-        start += max_chars - overlap
-    return chunks
+def contar_tokens(texto: str) -> int:
+    enc = tiktoken.get_encoding("cl100k_base")
+    return len(enc.encode(texto))
 
 def indexar_documentos():
     archivos = glob.glob("docs/*.txt")
     total_chunks = 0
-    total_caracteres = 0
+    total_tokens = 0
     
     print(f"🔍 Encontrados {len(archivos)} archivos para indexar.")
     
@@ -48,13 +46,12 @@ def indexar_documentos():
         with open(ruta_archivo, "r", encoding="utf-8") as f:
             contenido = f.read()
             
-        total_caracteres += len(contenido)
+        total_tokens += contar_tokens(contenido)
         chunks = chunk_text(contenido)
         
         for idx, chunk in enumerate(chunks):
             chunk_id = f"{nombre_archivo}_chunk_{idx}"
             
-            # Guardar en ChromaDB con metadatos
             collection.upsert(
                 documents=[chunk],
                 metadatas=[{"fuente": nombre_archivo, "chunk_id": idx}],
@@ -62,12 +59,13 @@ def indexar_documentos():
             )
             total_chunks += 1
 
-    # Resumen e información estimada (Al ser local, el coste es 0)
+    coste_estimado = total_tokens * 0.0001 / 1000 if total_tokens > 0 else 0
+
     print("\n🚀 --- RESUMEN DE INDEXACIÓN ---")
     print(f"📄 Documentos procesados: {len(archivos)}")
     print(f"🧩 Total de chunks creados: {total_chunks}")
-    print(f"🔤 Caracteres totales: {total_caracteres}")
-    print(f"💰 Coste estimado API: $0.00 (¡Ejecución 100% Local!)")
+    print(f"🔤 Tokens totales procesados: {total_tokens}")
+    print(f"💰 Coste estimado API: ${coste_estimado:.4f} ({'Ejecución Local' if coste_estimado == 0 else 'Aprox. OpenAI text-embedding-ada-002'})")
     print("---------------------------------\n")
 
 if __name__ == "__main__":

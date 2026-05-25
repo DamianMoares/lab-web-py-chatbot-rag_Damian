@@ -20,26 +20,37 @@ Reglas obligatorias:
 4. Mantén un tono profesional y directo."""
 
 def detectar_datos_personales(texto: str) -> bool:
-    """Detecta patrones básicos de emails o nombres/estructuras típicas."""
     patron_email = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    # Un filtro muy simple para fines del laboratorio
+    patron_nombre = r'\b(?:[A-Z][a-záéíóúñ]+)\s+(?:[A-Z][a-záéíóúñ]+\s+){1,}[A-Z][a-záéíóúñ]+\b'
+    patron_telefono = r'(?:\+?\d{1,3})?[\s.-]?\d{9,12}'
+    patron_dni = r'\b\d{8}[A-Za-z]\b'
     if re.search(patron_email, texto):
+        return True
+    if re.search(patron_telefono, texto):
+        return True
+    if re.search(patron_dni, texto):
         return True
     return False
 
 def chat(pregunta: str, session_id: str) -> dict:
-    # 1. Recuperar los 3 fragmentos más relevantes
     resultados = collection.query(
         query_texts=[pregunta],
         n_results=3
     )
     
-    fragmentos = resultados['documents'][0] if resultados['documents'] else []
-    metadatas = resultados['metadatas'][0] if resultados['metadatas'] else []
+    fragmentos = resultados['documents'][0] if resultados.get('documents') and resultados['documents'][0] else []
+    metadatas = resultados['metadatas'][0] if resultados.get('metadatas') and resultados['metadatas'][0] else []
+    
+    if not fragmentos:
+        return {
+            "respuesta": "No tengo información sobre eso.",
+            "fuentes": [],
+            "session_id": session_id,
+            "fragmentos_usados": 0
+        }
     
     fuentes_usadas = list(set([meta['fuente'] for meta in metadatas]))
     
-    # 2. Construir el contexto para el prompt
     contexto_str = "\n\n".join([f"[Fuente: {meta['fuente']}]: {doc}" for doc, meta in zip(fragmentos, metadatas)])
     
     # 3. Gestionar historial de conversación
